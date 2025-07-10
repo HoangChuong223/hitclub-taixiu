@@ -1,12 +1,14 @@
 const WebSocket = require('ws');
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 
 const app = express();
 app.use(cors());
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3010;
 
 let ws;
+let pingInterval;
 let patternHistory = [];
 let currentSid = null;
 let currentData = null;
@@ -14,10 +16,12 @@ let currentData = null;
 const processedSid = new Set();
 const processedGbb = new Set();
 
+const ACCESS_TOKEN = "1-014fc1aed379ebbb893d2aabb93974e3";
+
 const messagesToSend = [
   [1, "MiniGame", "", "", {
     agentId: "1",
-    accessToken: "1-cf44d8014cdd1d4e4c72c0e470f092a2",
+    accessToken: ACCESS_TOKEN,
     reconnect: false
   }],
   [6, "MiniGame", "lobbyPlugin", { cmd: 10001 }],
@@ -38,20 +42,24 @@ function simpleAIDuDoan(pattern) {
 function connectWebSocket() {
   ws = new WebSocket("wss://mynygwais.hytsocesk.com/websocket", {
     headers: {
-      "User-Agent": "Mozilla/5.0",
-      Origin: "https://1.hit.club"
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K; AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+      "Origin": "https://i.hit.club"
     }
   });
 
   ws.on('open', () => {
-    console.log("[OK] WebSocket đã kết nối");
+    console.log("[✅] WebSocket đã kết nối");
+
     messagesToSend.forEach((msg, i) => {
       setTimeout(() => ws.send(JSON.stringify(msg)), i * 400);
     });
 
     let i = 1;
-    setInterval(() => {
-      ws.send(JSON.stringify(["7", "MiniGame", "1", i++]));
+    if (pingInterval) clearInterval(pingInterval);
+    pingInterval = setInterval(() => {
+      try {
+        ws.send(JSON.stringify(["7", "MiniGame", "1", i++]));
+      } catch {}
     }, 10000);
   });
 
@@ -64,13 +72,11 @@ function connectWebSocket() {
       const sid = data[1].sid;
       const gbb = data[1].gBB;
 
-      // In mã phiên
       if ((cmd === 1002 || cmd === 1008) && sid && !processedSid.has(sid)) {
         currentSid = sid;
         processedSid.add(sid);
       }
 
-      // In kết quả
       if ((cmd === 1003 || cmd === 1004) && data[1].d1 && data[1].d2 && data[1].d3 && !processedGbb.has(gbb)) {
         processedGbb.add(gbb);
         const { d1, d2, d3 } = data[1];
@@ -100,25 +106,31 @@ function connectWebSocket() {
   });
 
   ws.on('close', () => {
-    console.log("[Đóng] Mất kết nối, đang kết nối lại...");
+    console.log("[⚠️] WebSocket đóng. Kết nối lại sau 2s...");
+    clearInterval(pingInterval);
     setTimeout(connectWebSocket, 2000);
   });
 
   ws.on('error', err => {
-    console.log("[Lỗi WebSocket]", err.message);
+    console.log("[❌ Lỗi WebSocket]", err.message);
   });
 }
 
-// API trả dữ liệu JSON
+// REST API
 app.get('/taixiu', (req, res) => {
   res.json(currentData || { message: "Đang chờ dữ liệu..." });
 });
 
 app.get('/', (req, res) => {
-  res.send("OK - /taixiu để xem JSON");
+  res.send("✅ Server đang chạy. Truy cập /taixiu để xem JSON.");
 });
 
+// Chạy server và giữ cho Render không bị ngủ
 app.listen(PORT, () => {
   console.log(`[HTTP] Server chạy tại http://localhost:${PORT}`);
   connectWebSocket();
+
+  setInterval(() => {
+    http.get(`http://localhost:${PORT}/`);
+  }, 1000 * 60 * 14); // gọi lại mỗi 14 phút
 });
